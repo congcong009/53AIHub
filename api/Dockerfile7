@@ -1,0 +1,111 @@
+# 构建前端
+FROM node:20-alpine AS frontend-builder
+
+# 使用国内镜像源更新包仓库并安装构建依赖
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.huaweicloud.com/g' /etc/apk/repositories && \
+    apk add --no-cache python3 make g++ bash git libx11-dev libxext-dev libxrender-dev libxrandr-dev libxcursor-dev libxfixes-dev libxtst-dev alsa-lib-dev mesa-dev
+
+# 配置npm使用国内镜像源
+RUN npm config set registry https://mirrors.huaweicloud.com/repository/npm/
+
+# 通过环境变量设置第三方库的镜像源（这些会被 npm 自动识别）
+ENV ELECTRON_MIRROR="https://mirrors.huaweicloud.com/electron/" \
+    SASS_BINARY_SITE="https://mirrors.huaweicloud.com/node-sass/" \
+    CHROMEDRIVER_CDNURL="https://mirrors.huaweicloud.com/chromedriver/" \
+    OPERADRIVER_CDNURL="https://mirrors.huaweicloud.com/operadriver/" \
+    PHANTOMJS_CDNURL="https://mirrors.huaweicloud.com/phantomjs/" \
+    SELENIUM_CDNURL="https://mirrors.huaweicloud.com/selenium/" \
+    NODE_INSPECTOR_BINARY_HOST_MIRROR="https://mirrors.huaweicloud.com/node-inspector/" \
+    PUPPETEER_DOWNLOAD_HOST="https://mirrors.huaweicloud.com/puppeteer/"
+
+WORKDIR /app
+
+# 先复制 package.json 文件来安装依赖
+COPY web/front/package*.json ./front/
+COPY web/console/package*.json ./console/
+
+# 安装依赖
+WORKDIR /app/front
+RUN npm config set legacy-peer-deps true
+RUN npm install --verbose --timeout=600s --maxsockets 1 --no-audit --prefer-offline
+
+WORKDIR /app/console
+RUN npm config set legacy-peer-deps true
+RUN npm install --verbose --timeout=600s --maxsockets 1 --no-audit --prefer-offline
+
+# 复制源码并构建
+WORKDIR /app/front
+COPY web/front/ ./
+# 删除有问题的 hub-ui-x 包并重新安装，以确保完整性
+#RUN rm -rf node_modules/hub-ui-x
+#RUN npm install hub-ui-x --verbose --timeout=600s --maxsockets 1 --no-audit --prefer-offline
+RUN npm install vue codemirror --verbose --timeout=600s --maxsockets 1 --no-audit --prefer-offline
+# 清除npm缓存并重新安装所有依赖以解决可能的包损坏问题
+RUN npm cache clean --force
+RUN rm -rf node_modules package-lock.json && npm install --verbose --timeout=600s --maxsockets 1 --no-audit --prefer-offline
+RUN npm run build --verbose --timeout=600s
+
+WORKDIR /app/console
+COPY web/console/ ./
+RUN npm install vue codemirror --verbose --timeout=600s --maxsockets 1 --no-audit --prefer-offline
+RUN npm cache clean --force
+RUN rm -rf node_modules package-lock.json && npm install --verbose --timeout=600s --maxsockets 1 --no-audit --prefer-offline
+RUN npm run build --verbose --timeout=600s
+
+# 构建后端
+FROM golang:1.24-alpine AS backend-builder
+
+# 使用国内镜像源更新包仓库并安装构建依赖
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.huaweicloud.com/g' /etc/apk/repositories && \
+    apk add --no-cache gcc musl-dev
+
+WORKDIR /app
+
+# 设置GOPROXY为中国大陆代理
+ENV GOPROXY=https://goproxy.cn,direct
+
+# 复制go.mod和go.sum文件
+COPY api/go.mod api/go.sum ./
+
+# 下载依赖
+RUN go mod download
+
+# 复制源代码
+COPY api/ .
+
+# 复制构建好的前端资源
+COPY --from=frontend-builder /app/front/dist ./static/front
+COPY --from=frontend-builder /app/console/dist ./static/console
+
+# 创建docs目录
+RUN mkdir -p docs
+
+# 安装swag并生成文档
+RUN go install github.com/swaggo/swag/cmd/swag@latest
+RUN if [ -f "docs/docs.go" ]; then \
+        echo "docs already exist, using existing docs"; \
+    else \
+        echo "generating docs..."; \
+        swag init -g router/main.go; \
+    fi
+
+# 构建后端应用
+RUN go build -o main .
+
+# 运行时镜像
+FROM alpine:latest
+
+# 使用国内镜像源并安装ca-certificates
+RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.huaweicloud.com/g' /etc/apk/repositories && \
+    apk --no-cache add ca-certificates
+
+WORKDIR /root/
+
+# 从构建阶段复制可执行文件和静态资源
+COPY --from=backend-builder /app/main .
+COPY --from=backend-builder /app/static ./static
+COPY --from=backend-builder /app/docs ./docs
+
+EXPOSE 3000
+
+CMD ["./main"]

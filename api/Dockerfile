@@ -1,19 +1,15 @@
-FROM golang:1.24.1 as builder
+# 简化版Dockerfile - 用于快速构建（假设前端已预构建）
+# 如果服务器资源有限，建议先在本地构建前端，然后使用此Dockerfile
 
-# 设置工作目录
+FROM golang:1.23-alpine AS builder
+
+# 安装构建依赖
+RUN apk add --no-cache gcc musl-dev
+
 WORKDIR /app
 
 # 设置GOPROXY为中国大陆代理
 ENV GOPROXY=https://goproxy.cn,direct
-
-# 安装构建依赖(使用阿里云Debian镜像源)
-RUN echo "deb https://mirrors.aliyun.com/debian/ bookworm main contrib non-free\n\
-deb https://mirrors.aliyun.com/debian/ bookworm-updates main contrib non-free\n\
-deb https://mirrors.aliyun.com/debian-security bookworm-security main" > /etc/apt/sources.list && \
-    apt-get update -o Acquire::Retries=3 -o Acquire::http::Timeout=10 && \
-    apt-get install -y --no-install-recommends gcc libc6-dev && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/*
 
 # 复制go.mod和go.sum文件
 COPY go.mod go.sum ./
@@ -21,23 +17,34 @@ COPY go.mod go.sum ./
 # 下载依赖
 RUN go mod download
 
-# 复制源代码
+# 复制源代码和预构建的静态资源
 COPY . .
 
-# 构建应用 (修正CGO设置)
-RUN CGO_ENABLED=1 go build -a -o /app/53AIHub -ldflags '-X "github.com/53AI/53AIHub/config.VersionTime=$(date +%Y%m%d%H%M%S)" -extldflags "-static"' ./main.go
+# 安装swag并生成文档
+RUN go install github.com/swaggo/swag/cmd/swag@latest
+RUN if [ -f "docs/docs.go" ]; then \
+        echo "docs already exist, using existing docs"; \
+    else \
+        echo "generating docs..."; \
+        swag init -g router/main.go; \
+    fi
 
-# 使用精简的Alpine镜像作为运行时
-FROM alpine:3.18
+# 构建后端应用
+RUN go build -o main .
 
-# 安装SQLite运行时依赖和C库
-RUN apk --no-cache add ca-certificates sqlite libc6-compat
+# 运行时镜像
+FROM alpine:latest
 
-# 从构建阶段复制可执行文件
-COPY --from=builder /app/53AIHub /app/
+# 安装ca-certificates
+RUN apk --no-cache add ca-certificates
 
-# 暴露端口
+WORKDIR /root/
+
+# 从构建阶段复制可执行文件和静态资源
+COPY --from=builder /app/main .
+COPY --from=builder /app/static ./static
+COPY --from=builder /app/docs ./docs
+
 EXPOSE 3000
 
-# 设置启动命令
-CMD ["/app/53AIHub"]
+CMD ["./main"]
