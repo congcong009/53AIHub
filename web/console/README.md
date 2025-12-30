@@ -45,6 +45,9 @@ $ npm run build
 ### 服务端后台代码更新
 复制`dist/`文件夹下的所有代码， 粘贴到`api/static/dist`文件夹中
 
+```shell
+cp -r /home/aihub/web/console/dist/* /home/aihub/api/static/dist/
+```
 
 ### 百度编辑器相关
 

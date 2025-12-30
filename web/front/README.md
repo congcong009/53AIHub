@@ -47,6 +47,12 @@ $ npm run build
 ### 服务端前台代码更新
 复制`dist/`文件夹下的所有代码， 粘贴到`api/static/renderer`文件夹中
 
+```shell
+# 复制实际的构建输出目录内容
+cp -r /home/aihub/web/front/out/renderer/* /home/aihub/api/static/renderer/
+
+```
+
 ## 技术文档
 
 - [项目配置](https://cn.vitejs.dev/config/)

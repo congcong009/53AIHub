@@ -58,7 +58,8 @@ cp -r console/dist ../api/static/console/
 
 ```bash
 cd /home/aihub/api
-docker build -f Dockerfile -t aihub_web .
+#docker build -f Dockerfile -t aihub_web .
+docker build -f Dockerfile7 -t cdqz/aihub_core .
 ```
 
 ## 启动服务

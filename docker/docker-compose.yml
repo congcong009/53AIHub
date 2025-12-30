@@ -3,9 +3,7 @@ version: '3.8'
 services:
   # 后端服务 - 现在包含了前端资源
   web:
-    build:
-      context: ..  # 项目根目录
-      dockerfile: api/Dockerfile7
+    image: cdqz/aihub_core:1.0
     env_file: .env
     ports:
       - "3040:3000"  # 主访问端口
@@ -14,7 +12,8 @@ services:
       - MYSQL_HOST=mysql
       - PORT=3000  # 改为容器内端口3000
     volumes:
-      - ../api:/app  # 挂载源代码目录用于开发
+      - /home/aihub/api:/app/api  # 挂载API源代码目录用于开发
+      - /home/aihub/api/static:/root/static  # 挂载预构建的静态资源目录
       - go-mod-cache:/app/go/pkg  # Go模块缓存
     depends_on:
       - redis
@@ -23,10 +22,10 @@ services:
 
   # 移除单独的frontend服务，因为现在前后端合一
   redis:
-    image: redis:6-alpine
+    image: redis:8.0
     command: redis-server --requirepass redis@2025  # 设置 Redis 密码,改这里同时要改.env文件
     volumes:
-      - ../redis_data:/data  # 挂载Redis数据目录
+      - /home/aihub/redis_data:/data  # 挂载Redis数据目录
     restart: unless-stopped
 
   mysql:
@@ -37,7 +36,7 @@ services:
       MYSQL_USER: agent
       MYSQL_PASSWORD: agentpassword
     volumes:
-      - ../mysql_data:/var/lib/mysql  # 挂载MySQL数据目录
+      - /home/aihub/mysql_data:/var/lib/mysql  # 挂载MySQL数据目录
     restart: unless-stopped
 
 volumes:
